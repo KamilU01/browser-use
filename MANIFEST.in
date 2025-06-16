@@ -1,0 +1,3 @@
+# Exclude large LFS files from the package distribution
+exclude static/kayak.gif
+exclude static/photos.gif

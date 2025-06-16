@@ -106,14 +106,6 @@ skip-magic-trailing-comma = false
 [tool.pyright]
 typeCheckingMode = "off"
 
-[tool.hatch.build]
-include = [
-    "browser_use/**/*.py",
-    "!browser_use/**/tests/*.py",
-    "!browser_use/**/tests.py",
-    "browser_use/agent/system_prompt.md",
-    "browser_use/dom/buildDomTree.js",
-]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
