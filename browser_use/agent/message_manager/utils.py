@@ -224,9 +224,23 @@ def _merge_successive_messages(messages: list[BaseMessage], class_to_merge: type
 			streak += 1
 			if streak > 1:
 				if isinstance(message.content, list):
-					merged_messages[-1].content += message.content[0]['text']  # type:ignore
+					# Handle multimodal content properly - preserve both text and images
+					# Check if the previous message already has list content
+					if isinstance(merged_messages[-1].content, list):
+						# Append to existing list content
+						merged_messages[-1].content.extend(message.content)
+					else:
+						# Convert string content to list and add new content
+						existing_text = merged_messages[-1].content
+						merged_messages[-1].content = [{'type': 'text', 'text': existing_text}] + message.content
 				else:
-					merged_messages[-1].content += message.content
+					# Simple text merging
+					if isinstance(merged_messages[-1].content, list):
+						# Previous message has multimodal content, add text to it
+						merged_messages[-1].content.append({'type': 'text', 'text': message.content})
+					else:
+						# Both are simple text
+						merged_messages[-1].content += message.content
 			else:
 				merged_messages.append(message)
 		else:
