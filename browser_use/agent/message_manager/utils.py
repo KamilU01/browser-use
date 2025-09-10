@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS = [
 	'deepseek-reasoner',
 	'deepseek-r1',
-	'.*gemma.*-it',
+	'.*gemma.*',
 ]
 
 
