@@ -229,17 +229,44 @@ class SignalHandler:
 		"""
 		SIGTERM handler.
 
-		Always exits the program completely.
+		Always exits the program completely, but attempts cleanup first.
 		"""
 		global _exiting
 		if not _exiting:
 			_exiting = True
-			print('\n\n🛑 SIGTERM received. Exiting immediately...\n\n', file=stderr)
+			print('\n\n🛑 SIGTERM received. Attempting cleanup before exit...\n', file=stderr)
 
 			# Call custom exit callback if provided
 			if self.custom_exit_callback:
-				self.custom_exit_callback()
+				try:
+					self.custom_exit_callback()
+				except Exception as e:
+					print(f'Error in exit callback: {e}', file=stderr)
 
+			# Try to schedule cleanup tasks if we have an event loop
+			try:
+				if self.loop and self.loop.is_running():
+					# Schedule cleanup and exit after a brief delay
+					def cleanup_and_exit():
+						try:
+							# Give a brief window for cleanup tasks to complete
+							time.sleep(0.5)
+						except Exception:
+							pass
+						finally:
+							os._exit(0)
+
+					# Schedule cleanup in a thread to avoid blocking signal handler
+					import threading
+					cleanup_thread = threading.Thread(
+						target=cleanup_and_exit, daemon=True
+					)
+					cleanup_thread.start()
+					return
+			except Exception as e:
+				print(f'Error scheduling cleanup: {e}', file=stderr)
+
+		# Fallback: immediate exit if cleanup scheduling fails
 		os._exit(0)
 
 	def _cancel_interruptible_tasks(self) -> None:

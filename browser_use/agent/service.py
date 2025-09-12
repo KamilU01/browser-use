@@ -19,6 +19,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def run_sync_coro(coro):
+	"""Run an async coroutine from sync code safely.
+
+	If an event loop is already running, schedule the coroutine and return
+	the Task/future. Otherwise create a new loop via asyncio.run and
+	return the result.
+	"""
+	try:
+		loop = asyncio.get_running_loop()
+	except RuntimeError:
+		loop = None
+
+	if loop and loop.is_running():
+		# Schedule on the running loop and return the Task/future.
+		return asyncio.ensure_future(coro, loop=loop)
+	# No running loop: run in a fresh loop and return result.
+	return asyncio.run(coro)
+
+
 # from lmnr.sdk.decorators import observe
 from bubus import EventBus
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -1366,8 +1386,18 @@ class Agent(Generic[Context]):
 
 		term_width = shutil.get_terminal_size((80, 20)).columns
 		print('=' * term_width)
+		# Build a compact summary of input message types (e.g. SystemMessage, HumanMessage, etc.)
+		try:
+			msg_types = [m.__class__.__name__ for m in input_messages]
+			types_str = ', '.join(msg_types)
+		except Exception:
+			# Fallback if message objects are unusual
+			types_str = ''
+
+		type_info = f' | types: [{types_str}]' if types_str else ''
+
 		self.logger.info(
-			f'🧠 LLM call => {self.chat_model_library} [✉️ {message_count} msg, ~{current_tokens} tk, {total_chars} char{image_status}] {output_format}{tool_info}'
+			f'🧠 LLM call => {self.chat_model_library} [✉️ {message_count} msg, ~{current_tokens} tk, {total_chars} char{image_status}] {output_format}{tool_info}{type_info}'
 		)
 
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
@@ -1452,9 +1482,39 @@ class Agent(Generic[Context]):
 		# Set up the  signal handler with callbacks specific to this agent
 		from browser_use.utils import SignalHandler
 
-		# Define the custom exit callback function for second CTRL+C
+		# Define the custom exit callback function for second CTRL+C and SIGTERM
 		def on_force_exit_log_telemetry():
-			self._log_agent_event(max_steps=max_steps, agent_run_error='SIGINT: Cancelled by user')
+			# Clean up browser session first (browser processes and playwright subprocess)
+			async def async_cleanup():
+				try:
+					if self.browser_session:
+						await self.browser_session.kill()
+					self.stop()
+				except Exception as e:
+					self.logger.error(f'Error during browser cleanup: {e}')
+
+			# Run the async cleanup
+			try:
+				if loop.is_running():
+					# Schedule the cleanup to run in the event loop
+					loop.create_task(async_cleanup())
+				else:
+					# If loop is not running, run it synchronously
+					loop.run_until_complete(async_cleanup())
+			except Exception as e:
+				self.logger.error(f'Error during async cleanup: {e}')
+				# Fallback: try synchronous cleanup
+				try:
+					if self.browser_session:
+						# Try to kill synchronously if available
+						run_sync_coro(self.browser_session.kill())
+						time.sleep(10)
+					self.stop()
+				except Exception as fallback_e:
+					self.logger.error(f'Error during fallback cleanup: {fallback_e}')
+
+			# Log telemetry
+			self._log_agent_event(max_steps=max_steps, agent_run_error='SIGINT/SIGTERM: Cancelled by user')
 			# NEW: Call the flush method on the telemetry instance
 			if hasattr(self, 'telemetry') and self.telemetry:
 				self.telemetry.flush()
